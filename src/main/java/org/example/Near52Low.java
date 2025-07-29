@@ -1,18 +1,4 @@
-
-
-
-//        git add .
-//        git commit -m "Your message"
-//        git push origin main
-
-//cd /Users/baps/Documents/Twillo/SC-SK/
-//git add .
-//git commit -m "Your commit message here"
-//git push origin main
-//git remote add origin https://github.com/your-username/your-repo-name.git
-//        git branch -M main   # or master
-//        git push -u origin main
-
+package org.example;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.util.ArrayList;
