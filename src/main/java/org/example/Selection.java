@@ -25,6 +25,8 @@ import org.json.JSONObject;
 import javax.swing.*;
 import javax.swing.table.*;
 import java.awt.*;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.*;
@@ -216,6 +218,20 @@ public class Selection {
         myIndexCheckbox = new JCheckBox("Include only MyIndex companies");
         myIndexCheckbox.setBackground(new Color(230, 242, 255));
 
+//        JTextField searchField = new JTextField(10);
+//      //  JButton searchButton = new JButton("Search Ticker");
+//
+//        searchField.addActionListener(e -> {
+//            String input = searchField.getText().trim();
+//            if (!input.isEmpty()) {
+//                scrollToTicker(input.toUpperCase());
+//            }
+//        });
+//
+//
+//        filterPanel.add(new JLabel("Search Ticker:"));
+//        filterPanel.add(searchField);
+       // filterPanel.add(searchButton);
 
         filterPanel.add(rsiPanel);
         filterPanel.add(macdPanel);
@@ -263,6 +279,26 @@ public class Selection {
                 JOptionPane.showMessageDialog(frame, "Please select a report.");
             }
         });
+
+
+        JTextField searchField = new JTextField(10);
+
+        searchField.addActionListener(e -> {
+            String input = searchField.getText().trim();
+            if (!input.isEmpty()) {
+                scrollToTicker(input.toUpperCase());
+            }
+        });
+
+        searchField.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusGained(FocusEvent e) {
+                SwingUtilities.invokeLater(searchField::selectAll);
+            }
+        });
+
+        filterPanel.add(new JLabel("Search Ticker:"));
+        filterPanel.add(searchField);
 
         exportButton.addActionListener(e -> exportTableToExcel());
 
@@ -1207,6 +1243,26 @@ public class Selection {
         }
     }
 
+
+    private void scrollToTicker(String targetTicker) {
+        for (int row = 0; row < table.getRowCount(); row++) {
+            String ticker = table.getValueAt(row, 0).toString();
+            if (ticker.equalsIgnoreCase(targetTicker)) {
+                table.setRowSelectionInterval(row, row);
+
+                // Scroll row to top
+                JScrollPane scrollPane = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, table);
+                if (scrollPane != null) {
+                    JViewport viewport = scrollPane.getViewport();
+                    Rectangle rect = table.getCellRect(row, 0, true);
+                    rect.setLocation(rect.x, Math.max(0, rect.y - table.getRowHeight()));
+                    viewport.setViewPosition(rect.getLocation());
+                }
+                return;
+            }
+        }
+        JOptionPane.showMessageDialog(frame, "Ticker '" + targetTicker + "' not found.");
+    }
 
 
 
