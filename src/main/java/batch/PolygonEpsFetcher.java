@@ -1,6 +1,7 @@
 //Step 4
 package batch;
 
+import org.example.key;
 import org.json.*;
 
 import java.io.BufferedReader;
@@ -14,8 +15,9 @@ import java.util.List;
 
 public class PolygonEpsFetcher {
 
+    static String apiKey ="";
     public static void main(String[] args) {
-        String apiKey = "8CFFkEI2zMfN7xBIkeuJz1qlJ4UJ0iRM"; // Replace with your actual key
+        apiKey = key.getApiKey("polygon.apiKey");
         String baseUrl = "https://api.polygon.io/vX/reference/financials";
         String url = baseUrl + "?timeframe=ttm&order=asc&limit=100&sort=filing_date&apiKey=" + apiKey;
 

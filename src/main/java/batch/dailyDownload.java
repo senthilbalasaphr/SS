@@ -1,6 +1,7 @@
 // Step 2
 package batch;
 
+import org.example.key;
 import org.json.*;
 
 import java.io.*;
@@ -18,6 +19,8 @@ public class dailyDownload {
     private static final String OUTPUT_FILE = "/Users/baps/Documents/Twillo/SCFiles/output_365_days.csv";
     private static final String BASE_URL = "https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/";
 
+    static String apiKey ="";
+
     public static void main(String[] args) {
         Set<String> symbolSet = readTickerSymbols();
         if (symbolSet.isEmpty()) {
@@ -25,7 +28,7 @@ public class dailyDownload {
             return;
         }
 
-        String apiKey = readApiKey();
+        apiKey = key.getApiKey("polygon.apiKey");
         if (apiKey == null || apiKey.isEmpty()) {
             System.err.println("API key missing or empty.");
             return;

@@ -1,6 +1,7 @@
 //Step 1
 package batch;
 
+import org.example.key;
 import org.json.*;
 
 import java.io.*;
@@ -11,15 +12,17 @@ import java.util.Map;
 import java.util.Set;
 
 public class Ticket {
-    private static final String API_KEY_FILE = "/Users/baps/Documents/Twillo/SCFiles/apikey.txt";
+  //  private static final String API_KEY_FILE = "/Users/baps/Documents/Twillo/SCFiles/apikey.txt";
     private static final String BASE_URL = "https://api.polygon.io/v3/reference/tickers";
     private static final String DETAIL_URL = "https://api.polygon.io/v3/reference/tickers/";
     private static final String OUTPUT_FILE = "/Users/baps/Documents/Twillo/SCFiles/tickers.csv";
 
+    static String apiKey ="";
+
     public static void main(String[] args) {
-        String apiKey = readApiKey();
+        apiKey = key.getApiKey("polygon.apiKey");
         if (apiKey == null || apiKey.isEmpty()) {
-            System.err.println("API key not found in " + API_KEY_FILE);
+            System.err.println("API key not found in " + apiKey);
             return;
         }
 
@@ -73,13 +76,7 @@ public class Ticket {
         }
     }
 
-    private static String readApiKey() {
-        try (BufferedReader reader = new BufferedReader(new FileReader(API_KEY_FILE))) {
-            return reader.readLine().trim();
-        } catch (IOException e) {
-            return null;
-        }
-    }
+
 
     private static Map<String, String[]> readExistingCsv() {
         Map<String, String[]> data = new LinkedHashMap<>();

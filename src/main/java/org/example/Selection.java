@@ -57,12 +57,13 @@ public class Selection {
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> new Selection().createAndShowGUI());
     }
-
+    String apiKey ="";
     private void createAndShowGUI() {
         frame = new JFrame("Report Viewer");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setSize(900, 600);
         frame.setLayout(new BorderLayout());
+         apiKey = key.getApiKey("polygon.apiKey");
 
         JPanel reportSelectionPanel = new JPanel(new GridLayout(0, 1));
         reportSelectionPanel.setBorder(BorderFactory.createTitledBorder("1. Select Report"));
@@ -727,7 +728,6 @@ public class Selection {
     }
 
     private List<Vector<String>> fetchPolygonSnapshotData() {
-        String Key="8CFFkEI2zMfN7xBIkeuJz1qlJ4UJ0iRM";
         List<Vector<String>> rows = new ArrayList<>();
         Map<String, String> tickerNameMap = new HashMap<>();
         Map<String, String[]> indus = readCsvAsMap("");
@@ -761,7 +761,7 @@ public class Selection {
 
         try {
             // Fetch all ticker names via pagination
-            String nextUrl = "https://api.polygon.io/v3/reference/tickers?market=stocks&active=true&limit=1000&apiKey=8CFFkEI2zMfN7xBIkeuJz1qlJ4UJ0iRM";
+            String nextUrl = "https://api.polygon.io/v3/reference/tickers?market=stocks&active=true&limit=1000&apiKey="+apiKey;
 
             while (nextUrl != null) {
                 URL url = new URL(nextUrl);
@@ -788,11 +788,11 @@ public class Selection {
                 }
 
                 String nextToken = obj.optString("next_url", null);
-                nextUrl = (nextToken != null && !nextToken.isEmpty()) ? nextToken + "&apiKey=8CFFkEI2zMfN7xBIkeuJz1qlJ4UJ0iRM" : null;
+                nextUrl = (nextToken != null && !nextToken.isEmpty()) ? nextToken + "&apiKey="+apiKey : null;
             }
 
             // Fetch snapshot data
-            String urlStr = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=8CFFkEI2zMfN7xBIkeuJz1qlJ4UJ0iRM";
+            String urlStr = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey="+apiKey;
             URL url = new URL(urlStr);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
@@ -1103,8 +1103,7 @@ public class Selection {
     }
 
     private void showCompanyPopup(String ticker) {
-        String apiKey = "8CFFkEI2zMfN7xBIkeuJz1qlJ4UJ0iRM";
-        String url = "https://api.polygon.io/v3/reference/tickers/" + ticker + "?apiKey=" + apiKey;
+            String url = "https://api.polygon.io/v3/reference/tickers/" + ticker + "?apiKey=" + apiKey;
 
         try {
             HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
