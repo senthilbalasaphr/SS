@@ -21,6 +21,7 @@ import org.jfree.chart.ui.TextAnchor;
 import org.jfree.data.category.DefaultCategoryDataset;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import javax.swing.Timer;
 
 import javax.swing.*;
 import javax.swing.table.*;
@@ -36,6 +37,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.*;
+
 
 public class Selection {
     private JFrame frame;
@@ -53,7 +55,7 @@ public class Selection {
     private JCheckBox myIndexCheckbox;
     private JLabel clockIconLabel;
 
-
+    private Timer refreshTimer;
     private JTextField fromVolatilityPct, toVolatilityPct;
 
     public static void main(String[] args) {
@@ -67,17 +69,19 @@ public class Selection {
         frame.setLayout(new BorderLayout());
          apiKey = key.getApiKey("polygon.apiKey");
 
+
+
         JPanel reportSelectionPanel = new JPanel(new GridLayout(0, 1));
         reportSelectionPanel.setBorder(BorderFactory.createTitledBorder("1. Select Report"));
 
-        JRadioButton salesBtn = new JRadioButton("Near 52-Week Low");
+       // JRadioButton salesBtn = new JRadioButton("Near 52-Week Low");
         JRadioButton polygonLiveBtn = new JRadioButton("Polygon Live Snapshot");
 //        JRadioButton inventoryBtn = new JRadioButton("Inventory Report");
 //        JRadioButton employeesBtn = new JRadioButton("Employee Report");
 //        JRadioButton industryBarChartBtn = new JRadioButton("Industry Bar Chart");
 
 
-        salesBtn.setActionCommand("near52low");
+     //   salesBtn.setActionCommand("near52low");
         polygonLiveBtn.setActionCommand("polygonlive");
 //        inventoryBtn.setActionCommand("inventory");
 //        employeesBtn.setActionCommand("employees");
@@ -85,13 +89,18 @@ public class Selection {
 
 
         reportGroup = new ButtonGroup();
-        reportGroup.add(salesBtn);
+      //  reportGroup.add(salesBtn);
         reportGroup.add(polygonLiveBtn);
+        polygonLiveBtn.setSelected(true);
+
+      //  salesBtn.setVisible(false);
+
+
 //        reportGroup.add(inventoryBtn);
 //        reportGroup.add(employeesBtn);
 //        reportGroup.add(industryBarChartBtn);
 
-        reportSelectionPanel.add(salesBtn);
+     //   reportSelectionPanel.add(salesBtn);
         reportSelectionPanel.add(polygonLiveBtn);
 //        reportSelectionPanel.add(inventoryBtn);
 //        reportSelectionPanel.add(employeesBtn);
@@ -248,7 +257,7 @@ public class Selection {
         stylePanel(filterPanel);
         filterPanel.setVisible(false);
 
-        salesBtn.addActionListener(e -> filterPanel.setVisible(true));
+      //  salesBtn.addActionListener(e -> filterPanel.setVisible(true));
         polygonLiveBtn.addActionListener(e -> {
             filterPanel.setVisible(true);
             sp500Checkbox.setVisible(true);
@@ -274,7 +283,35 @@ public class Selection {
         loadButton.addActionListener(e -> {
             String reportType = getSelectedReport();
             if (reportType != null) {
-                showSampleData(reportType);
+                // showSampleData(reportType);
+              //Refresh
+
+                Runnable fetchAndSort = () -> showSampleData(reportType);
+
+// Run once immediately
+                fetchAndSort.run();
+
+// Cancel previous timer if needed
+                if (refreshTimer != null) {
+                    refreshTimer.stop();
+                }
+
+// Calculate initial delay to top of next minute
+                long currentTime = System.currentTimeMillis();
+                long delayToTopOfMinute = 60000 - (currentTime % 60000);
+
+                new Timer((int) delayToTopOfMinute, x -> {
+                    // Start repeating timer exactly at the top of the next minute
+                    refreshTimer = new Timer(60000, y -> fetchAndSort.run());
+                    refreshTimer.start();
+
+                    // Run once immediately at top of the minute
+                    fetchAndSort.run();
+
+                    // Stop this one-time alignment timer
+                    ((Timer) e.getSource()).stop();
+                }).start();
+
             } else {
                 JOptionPane.showMessageDialog(frame, "Please select a report.");
             }
@@ -377,6 +414,7 @@ public class Selection {
     }
 
     private void showSampleData(String type) {
+        System.out.println("run");
         Vector<String> columns = new Vector<>();
         Vector<Vector<String>> data = new Vector<>();
 
@@ -508,6 +546,16 @@ public class Selection {
 //                data.addAll(polygonData);
 
                 List<Vector<String>> polygonData = fetchPolygonSnapshotData();
+
+                polygonData.sort((a, b) -> {
+                    try {
+                        double aVal = Double.parseDouble(a.get(12)); // After Hours
+                        double bVal = Double.parseDouble(b.get(12));
+                        return Double.compare(bVal, aVal); // Descending order
+                    } catch (NumberFormatException e) {
+                        return 0; // In case of parsing issues
+                    }
+                });
 
 
                 boolean PfilterSP500 = sp500Checkbox.isSelected();
@@ -859,14 +907,14 @@ public class Selection {
 
                 double last = lastTrade != null ? lastTrade.optDouble("p", 0.0) : 0.0;
                 double prevClose = prevDay != null ? prevDay.optDouble("c", 0.0) : 0.0;
-                double afterHoursDelta = (last > 0 && prevClose > 0) ? last - prevClose : 0.0;
                 double open = day.optDouble("o");
                 double Close = day.optDouble("c");
                 double dayDiff = 0;
                 if (open > 0) {
                    // dayDiff = last - prevClose;
-                    dayDiff = open - Close;
+                    dayDiff = last - Close;
                 }
+                double afterHoursDelta = (Close > 0 && prevClose > 0) ? Close - prevClose : 0.0;
 
                 String industry="";
                 String[] values = indus.get(ticker);
