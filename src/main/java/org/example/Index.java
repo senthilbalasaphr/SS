@@ -38,4 +38,33 @@ public class Index {
 
         return companies;
     }
+
+    public static Map<String, String> EarningCompanies() {
+        String fileName = "parsed_earnings.csv"; // Path to your CSV file
+        Map<String, String> companies = new HashMap<>();
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(fileName))) {
+            String line;
+            boolean firstLine = true;
+
+            while ((line = reader.readLine()) != null) {
+                if (firstLine) { // skip header row
+                    firstLine = false;
+                    continue;
+                }
+
+                // CSV format: Date,Time,Session,Symbol
+                String[] parts = line.split(",");
+                if (parts.length == 4) {
+                    String symbol = parts[3].trim();
+                    String session = parts[2].trim();
+                    companies.put(symbol, session);
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("Failed to read file: " + e.getMessage());
+        }
+
+        return companies;
+    }
 }

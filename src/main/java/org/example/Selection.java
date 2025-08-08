@@ -2,6 +2,7 @@
 
 package org.example;
 
+import batch.EarningsDate;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -34,6 +35,7 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.*;
@@ -45,15 +47,25 @@ public class Selection {
     private ButtonGroup reportGroup;
     private JTextField fromRSI, toRSI, fromMACD, toMACD, symbolFilterField, fromLowHighPct, toLowHighPct;
     private JTextField fromChange, toChange, fromMark, toMark;
-    private JDatePickerImpl fromLowDatePicker, toLowDatePicker, fromHighDatePicker, toHighDatePicker;
+    private JDatePickerImpl fromLowDatePicker, toLowDatePicker, fromHighDatePicker, toHighDatePicker,earningsFromDatePicker,earningsToDatePicker ;
     private JPanel rsiPanel, macdPanel, filterPanel;
     private JLabel rowCountLabel;
     private JTextField fromMarkDiff;
     private JTextField toMarkDiff;
     private JCheckBox sp500Checkbox;
+    private JCheckBox EarningsCheckbox;
+    private JRadioButton morningButton;
+    private JRadioButton eveningButton;
+    private ButtonGroup earningsTimeGroup;
+
+    private JCheckBox disableRefreshCheckbox;
 
     private JCheckBox myIndexCheckbox;
     private JLabel clockIconLabel;
+
+  //  private JDatePickerImpl earningsFromDatePicker;
+   // private JDatePickerImpl earningsToDatePicker;
+
 
     private Timer refreshTimer;
     private JTextField fromVolatilityPct, toVolatilityPct;
@@ -223,9 +235,48 @@ public class Selection {
         sp500Checkbox = new JCheckBox("Include only S&P 500 companies");
         sp500Checkbox.setBackground(new Color(230, 242, 255));
 
+        EarningsCheckbox = new JCheckBox("Earnings companies");
+        EarningsCheckbox.setBackground(new Color(230, 242, 255));
+
+        // Create Morning / Evening radio buttons
+        morningButton = new JRadioButton("Morning");
+        eveningButton = new JRadioButton("Evening");
+
+        earningsTimeGroup = new ButtonGroup();
+        earningsTimeGroup.add(morningButton);
+        earningsTimeGroup.add(eveningButton);
+
+        // Date pickers for From and To
+         earningsFromDatePicker = createDatePicker();
+         earningsToDatePicker = createDatePicker();
+
+// Initially hidden
+        morningButton.setVisible(false);
+        eveningButton.setVisible(false);
+        earningsFromDatePicker.setVisible(true);
+        earningsToDatePicker.setVisible(true);
+
+// Show/hide when EarningsCheckbox is selected
+        EarningsCheckbox.addActionListener(e -> {
+            boolean selected = EarningsCheckbox.isSelected();
+            morningButton.setVisible(selected);
+            eveningButton.setVisible(selected);
+            earningsFromDatePicker.setVisible(selected);
+            earningsToDatePicker.setVisible(selected);
+        });
+
+// Add to filterPanel
+        filterPanel.add(morningButton);
+        filterPanel.add(eveningButton);
+        filterPanel.add(new JLabel("From:"));
+        filterPanel.add(earningsFromDatePicker);
+        filterPanel.add(new JLabel("To:"));
+        filterPanel.add(earningsToDatePicker);
+
 
         myIndexCheckbox = new JCheckBox("Include only MyIndex companies");
         myIndexCheckbox.setBackground(new Color(230, 242, 255));
+
 
 //        JTextField searchField = new JTextField(10);
 //      //  JButton searchButton = new JButton("Search Ticker");
@@ -253,6 +304,7 @@ public class Selection {
         filterPanel.add(markDiffPanel);
         filterPanel.add(volatilityPanel);
         filterPanel.add(sp500Checkbox);
+        filterPanel.add(EarningsCheckbox);
         filterPanel.add(myIndexCheckbox);
         stylePanel(filterPanel);
         filterPanel.setVisible(false);
@@ -261,6 +313,7 @@ public class Selection {
         polygonLiveBtn.addActionListener(e -> {
             filterPanel.setVisible(true);
             sp500Checkbox.setVisible(true);
+            EarningsCheckbox.setVisible(true);
             myIndexCheckbox.setVisible(true);
         });
         // ✅ Make the window full screen
@@ -274,48 +327,66 @@ public class Selection {
         buttonPanel.setBorder(BorderFactory.createTitledBorder("3. Actions"));
 
 
+
+
         JButton exportButton = new JButton("Export to Excel");
+        disableRefreshCheckbox = new JCheckBox("Stop Auto-Refresh");
+        disableRefreshCheckbox.setBackground(new Color(230, 242, 255));
+        buttonPanel.add(disableRefreshCheckbox);
 
         buttonPanel.add(loadButton);
         buttonPanel.add(exportButton);
+        buttonPanel.add(disableRefreshCheckbox); // ✅ Add here
         stylePanel(buttonPanel);
 
-        loadButton.addActionListener(e -> {
+
+
+
+
+        loadButton.addActionListener(evt -> {
             String reportType = getSelectedReport();
             if (reportType != null) {
-                // showSampleData(reportType);
-              //Refresh
-
                 Runnable fetchAndSort = () -> showSampleData(reportType);
 
-// Run once immediately
+                // Run immediately
                 fetchAndSort.run();
 
-// Cancel previous timer if needed
+                // Stop previous timer if running
                 if (refreshTimer != null) {
                     refreshTimer.stop();
                 }
 
-// Calculate initial delay to top of next minute
+                // Calculate delay to top of next minute
                 long currentTime = System.currentTimeMillis();
                 long delayToTopOfMinute = 60000 - (currentTime % 60000);
 
-                new Timer((int) delayToTopOfMinute, x -> {
-                    // Start repeating timer exactly at the top of the next minute
-                    refreshTimer = new Timer(60000, y -> fetchAndSort.run());
+                // One-time alignment timer
+                Timer alignmentTimer = new Timer((int) delayToTopOfMinute, alignEvt -> {
+                    // Start the repeating 1-min timer with checkbox condition
+                    refreshTimer = new Timer(60000, t -> {
+                        if (!disableRefreshCheckbox.isSelected()) {
+                            fetchAndSort.run();
+                        }
+                    });
                     refreshTimer.start();
 
-                    // Run once immediately at top of the minute
-                    fetchAndSort.run();
+                    // Run immediately at top of the minute
+                    if (!disableRefreshCheckbox.isSelected()) {
+                        fetchAndSort.run();
+                    }
 
                     // Stop this one-time alignment timer
-                    ((Timer) e.getSource()).stop();
-                }).start();
+                    ((Timer) alignEvt.getSource()).stop();
+                });
+
+                alignmentTimer.setRepeats(false);
+                alignmentTimer.start();
 
             } else {
                 JOptionPane.showMessageDialog(frame, "Please select a report.");
             }
         });
+
 
 
         JTextField searchField = new JTextField(10);
@@ -448,7 +519,10 @@ public class Selection {
 
                 boolean add = true;
                 boolean filterSP500 = sp500Checkbox.isSelected();
+                boolean filterer= EarningsCheckbox.isSelected();
+
                 Map<String, String> companies = Index.IndexCompanies();
+
 
                 boolean filterMyIndex = myIndexCheckbox.isSelected();
                 Map<String, String> myIndexCompanies = MyIndex.MyIndexCompanies();
@@ -511,7 +585,6 @@ public class Selection {
                         }
                     }
 
-
                     if (filterMyIndex) {
                         String smb = row.get(0);
                         String ic = myIndexCompanies.get(smb);
@@ -559,9 +632,51 @@ public class Selection {
 
 
                 boolean PfilterSP500 = sp500Checkbox.isSelected();
+                boolean PerfilterS = EarningsCheckbox.isSelected();
+
                 boolean PfilterMyIndex = myIndexCheckbox.isSelected();
                 Map<String, String> Pcompanies = Index.IndexCompanies();
                 Map<String, String> PmyIndexCompanies = MyIndex.MyIndexCompanies();
+
+                EarningsDate EarningsDate = new EarningsDate();
+                Date selectedDate = (Date) earningsFromDatePicker.getModel().getValue();
+                LocalDate fromDate;
+                if (selectedDate != null) {
+                    fromDate = selectedDate.toInstant()
+                            .atZone(ZoneId.systemDefault())
+                            .toLocalDate();
+                }else{
+                    fromDate = LocalDate.now();
+                }
+
+                // To date
+                Date selectedToDate = (Date) earningsToDatePicker.getModel().getValue();
+                LocalDate toDate;
+                if (selectedToDate != null) {
+                    toDate = selectedToDate.toInstant()
+                            .atZone(ZoneId.systemDefault())
+                            .toLocalDate();
+                } else {
+                    toDate = fromDate; // fallback to fromDate if not selected
+                }
+
+//                LocalDate fromDate = LocalDate.of(
+//                        ((UtilDateModel) earningsFromDatePicker.getModel()).getYear(),
+//                        ((UtilDateModel) earningsFromDatePicker.getModel()).getMonth() + 1,
+//                        ((UtilDateModel) earningsFromDatePicker.getModel()).getDay()
+//                );
+
+//                LocalDate toDate = LocalDate.of(
+//                        ((UtilDateModel) earningsToDatePicker.getModel()).getYear(),
+//                        ((UtilDateModel) earningsToDatePicker.getModel()).getMonth() + 1,
+//                        ((UtilDateModel) earningsToDatePicker.getModel()).getDay()
+//                );
+
+// If To date not selected, use From date
+                if (!((UtilDateModel) earningsToDatePicker.getModel()).isSelected()) {
+                    toDate = fromDate;
+                }
+                Map<String, String> erCompanies = EarningsDate.getEarningCompanies(fromDate, toDate);
 
 
                 String PsymbolFilter = symbolFilterField.getText().trim().toLowerCase();
@@ -600,6 +715,26 @@ public class Selection {
                         if (PfilterSP500 && !Pcompanies.containsKey(row.get(0))) {
                             matches = false;
                         }
+
+                        // Earning filter
+                        if (PerfilterS) {
+                            String symbolKey = row.get(0);
+                            String session = erCompanies.get(symbolKey); // erCompanies: symbol → session ("Morning"/"Evening")
+
+                            if (session != null) { // symbol is in today's earnings list
+                                if (morningButton.isSelected() && !session.equalsIgnoreCase("Morning")) {
+                                    matches = false;
+                                }
+                                if (eveningButton.isSelected() && !session.equalsIgnoreCase("Evening")) {
+                                    matches = false;
+                                }
+                            } else {
+                                matches = false; // not in earnings list → pass filter
+                            }
+                        }
+
+
+
 
                         // ✅ Filter MyIndex
                         if (PfilterMyIndex && !PmyIndexCompanies.containsKey(row.get(0))) {
@@ -909,12 +1044,27 @@ public class Selection {
                 double prevClose = prevDay != null ? prevDay.optDouble("c", 0.0) : 0.0;
                 double open = day.optDouble("o");
                 double Close = day.optDouble("c");
-                double dayDiff = 0;
-                if (open > 0) {
-                   // dayDiff = last - prevClose;
-                    dayDiff = last - Close;
+
+
+                double afterHoursDelta=0;
+
+                if (Close>0) {
+                    afterHoursDelta = (Close > 0 && prevClose > 0) ? Close - prevClose : 0.0;
+                }   else{
+                    afterHoursDelta = (last > 0 && prevClose > 0) ? last - prevClose : 0.0;
                 }
-                double afterHoursDelta = (Close > 0 && prevClose > 0) ? Close - prevClose : 0.0;
+
+                double dayDiff = 0;
+                if (Close > 0) {
+                    // dayDiff = last - prevClose;
+                    dayDiff = last - Close;
+                }else{
+                    if(last ==0){
+
+                    }else {
+                        dayDiff = last - prevClose;
+                    }
+                }
 
                 String industry="";
                 String[] values = indus.get(ticker);
@@ -1315,3 +1465,8 @@ public class Selection {
 
 
 }
+
+
+/*
+"https://api.polygon.io/v2/aggs/ticker/AAPL/range/1/second/2025-08-01/2025-08-01?adjusted=true&sort=desc&limit=1&apiKey=8CFFkEI2zMfN7xBIkeuJz1qlJ4UJ0iRM"
+ */
