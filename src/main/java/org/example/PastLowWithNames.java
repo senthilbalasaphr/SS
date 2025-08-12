@@ -35,8 +35,10 @@ public class PastLowWithNames {
     private static final int DAYS = 30;                // window size (NEWEST -> OLDEST): D0..D29 (from CSV)
     private static final int MAX_TICKERS = 200000;     // cap API pagination
     private static final boolean FETCH_LIVE_MARK = true;
-    private static final int LIVE_MARK_LIMIT = 150;    // avoid hammering the API
+    private static final int LIVE_MARK_LIMIT = 999999;    // avoid hammering the API
     private static final int LIVE_MARK_THROTTLE_MS = 60;
+
+    private static JLabel rowCountLabel;
 
     // Model columns
     private static final int LOG_COL_SYMBOL       = 0;
@@ -183,8 +185,11 @@ public class PastLowWithNames {
         progress.setStringPainted(true);
         progress.setForeground(new Color(0, 122, 255)); // blue
         progress.setVisible(false);
+        rowCountLabel = new JLabel("Count: 0");
+        rowCountLabel.setBorder(BorderFactory.createEmptyBorder(0, 12, 0, 0));
         actionPanel.add(displayButton);
         actionPanel.add(progress);
+        actionPanel.add(rowCountLabel);
 
         controls.add(symbolPanel);
         controls.add(markPanel);
@@ -192,6 +197,7 @@ public class PastLowWithNames {
         controls.add(earningsPanel);
         controls.add(displayModePanel);
         controls.add(actionPanel);
+
 
         // Tables placeholder — swap models after run
         fullModel = new DefaultTableModel();
@@ -364,6 +370,11 @@ public class PastLowWithNames {
                     boolean hasFrom = !Double.isNaN(fromMark);
                     boolean hasTo   = !Double.isNaN(toMark);
 
+                    // get snapshot
+
+                    HashMap<String, String> tickersMarket = fetchsnapshot(API_KEY);
+
+
                     int processed = 0;
 
                     for (String symbol : symbolsInFile) {
@@ -387,18 +398,23 @@ public class PastLowWithNames {
                         if (missing) continue;
 
                         String desc = tickerNameMap.getOrDefault(symbol, symbol);
+                        if (Objects.equals(desc, symbol)){
+                            // If name wasn't found (filtering by S&P/MyIndex may exclude it), skip
+                            continue;
+                        }
                         String[] fullRow = buildFullRowNewestToOldest(symbol, desc, aligned);
 
                         // Live MarkPrice → Today
                         if (FETCH_LIVE_MARK && liveCount < LIVE_MARK_LIMIT) {
-                            Double live = fetchLiveMarkPrice(symbol);
+                            //  Double live = fetchLiveMarkPrice(symbol);
+                                Double live =  Double.parseDouble(tickersMarket.get(symbol));
                             if (live != null) {
                                 fullRow[LOG_COL_MARKPRICE] = fmt2(live);
                                 double d0 = dbl(aligned.get(0)[4]); // newest close (D0)
                                 recomputeTodayFromMark(fullRow, d0);
                             }
                             liveCount++;
-                            try { Thread.sleep(LIVE_MARK_THROTTLE_MS); } catch (InterruptedException ignore) {}
+                          //  try { Thread.sleep(LIVE_MARK_THROTTLE_MS); } catch (InterruptedException ignore) {}
                         }
 
                         // Mark filter
@@ -505,6 +521,11 @@ public class PastLowWithNames {
 
                 // Select top by default
                 ensureSelectTopRow();
+
+                // Update count label
+                if (rowCountLabel != null) {
+                    rowCountLabel.setText("Count: " + fullModel.getRowCount());
+                }
 
                 progress.setVisible(false);
                 displayButton.setEnabled(true);
@@ -763,9 +784,35 @@ public class PastLowWithNames {
 
     // ---------- Names for only needed symbols ----------
     private static Map<String, String> fetchSymbolsFor(Set<String> needed) throws IOException {
+//        Map<String, String> map = new LinkedHashMap<>();
+//        if (needed.isEmpty()) return map;
+//
+//        String nextUrl = "https://api.polygon.io/v3/reference/tickers?market=stocks&active=true&limit=1000&apiKey=" + API_KEY;
+//        while (nextUrl != null && map.size() < needed.size() && map.size() < MAX_TICKERS) {
+//            JSONObject obj = httpGetJson(nextUrl);
+//            JSONArray results = obj.optJSONArray("results");
+//            if (results != null) {
+//                for (int i = 0; i < results.length() && map.size() < needed.size() && map.size() < MAX_TICKERS; i++) {
+//                    JSONObject t = results.getJSONObject(i);
+//                    String ticker = t.optString("ticker", "").trim();
+//                    if (!needed.contains(ticker)) continue;
+//                    String name = t.optString("name", "").trim();
+//                    if (!ticker.isEmpty() && !name.isEmpty()) map.put(ticker, name);
+//                }
+//            }
+//            String nextToken = obj.optString("next_url", null);
+//            nextUrl = (nextToken != null && !nextToken.isEmpty()) ? nextToken + "&apiKey=" + API_KEY : null;
+//        }
+//        return map;
+        boolean filterMyIndex = myIndexCheckbox.isSelected();
+        boolean filterSP500 = sp500Checkbox.isSelected();
+
+        Map<String, String> myIndexCompanies = MyIndex.MyIndexCompanies();
+        Map<String, String> companies = Index.IndexCompanies();
+
         Map<String, String> map = new LinkedHashMap<>();
         if (needed.isEmpty()) return map;
-
+        System.out.println("fetchSymbolsFor");
         String nextUrl = "https://api.polygon.io/v3/reference/tickers?market=stocks&active=true&limit=1000&apiKey=" + API_KEY;
         while (nextUrl != null && map.size() < needed.size() && map.size() < MAX_TICKERS) {
             JSONObject obj = httpGetJson(nextUrl);
@@ -775,6 +822,10 @@ public class PastLowWithNames {
                     JSONObject t = results.getJSONObject(i);
                     String ticker = t.optString("ticker", "").trim();
                     if (!needed.contains(ticker)) continue;
+
+                    if (filterMyIndex && myIndexCompanies.get(ticker) == null) continue;
+                    if (filterSP500  && companies.get(ticker) == null) continue;
+
                     String name = t.optString("name", "").trim();
                     if (!ticker.isEmpty() && !name.isEmpty()) map.put(ticker, name);
                 }
@@ -1111,5 +1162,44 @@ public class PastLowWithNames {
         }
     }
 
+    private static HashMap<String, String> fetchsnapshot(String API_KEY) throws IOException {
+        HashMap<String, String> map = new HashMap<>();
+
+        // Fetch snapshot data
+        String urlStr = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=" + API_KEY;
+        URL url = new URL(urlStr);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+
+        BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+        StringBuilder json = new StringBuilder();
+        String line;
+        while ((line = in.readLine()) != null) json.append(line);
+        in.close();
+
+        JSONObject obj = new JSONObject(json.toString());
+        JSONArray tickers = obj.getJSONArray("tickers");
+
+
+        for (int i = 0; i < tickers.length(); i++) {
+            JSONObject t = tickers.getJSONObject(i);
+            JSONObject day = t.optJSONObject("day");
+            JSONObject lastTrade = t.optJSONObject("lastTrade");
+            JSONObject prevDay = t.optJSONObject("prevDay");
+
+            String ticker = t.optString("ticker");
+
+
+            //get P.E value
+            //  String Spe = peRatios.get(ticker);
+
+            double last = lastTrade != null ? lastTrade.optDouble("p", 0.0) : 0.0;
+            String sl = String.valueOf(last);
+            map.put(ticker, sl);
+
+
+        }
+        return map;
+    }
 
 }
