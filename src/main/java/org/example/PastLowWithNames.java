@@ -22,6 +22,8 @@ import java.util.*;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -43,20 +45,20 @@ public class PastLowWithNames {
     // Model columns
     private static final int LOG_COL_SYMBOL       = 0;
     private static final int LOG_COL_DESC         = 1;
-    private static final int LOG_COL_PCT          = 2;
-    private static final int LOG_COL_AVGVOL       = 3;
-    private static final int LOG_COL_NEWLOW       = 4;
-    private static final int LOG_COL_VOLSPIKE     = 5;
+    private static final int LOG_COL_PCT          = 5;
+    private static final int LOG_COL_AVGVOL       = 2;
+    private static final int LOG_COL_NEWLOW       = 3;
+    private static final int LOG_COL_VOLSPIKE     = 4;
     private static final int LOG_COL_MARKPRICE    = 6;
     private static final int LOG_COL_RANGEBAR     = 7;
     private static final int LOG_COL_TODAY        = 8;
     private static final int LOG_FIRST_DATE_COL   = 9;
 
     // RIGHT table relative indexes
-    private static final int R_PCT       = 0;  // model 2
-    private static final int R_AVGVOL    = 1;  // 3
-    private static final int R_NEWLOW    = 2;  // 4
-    private static final int R_VOLSPIKE  = 3;  // 5
+    private static final int R_PCT       = 3;  // model 2
+    private static final int R_AVGVOL    = 0;  // 3
+    private static final int R_NEWLOW    = 1;  // 4
+    private static final int R_VOLSPIKE  = 2;  // 5
     private static final int R_MARKPRICE = 4;  // 6
     private static final int R_RANGEBAR  = 5;  // 7
     private static final int R_TODAY     = 6;  // 8
@@ -212,6 +214,18 @@ public class PastLowWithNames {
         leftTable.setCellSelectionEnabled(false);
         rightTable.setCellSelectionEnabled(false);
 
+        leftTable.addMouseListener(new MouseAdapter() {
+            public void mouseClicked(MouseEvent e) {
+                int row = leftTable.rowAtPoint(e.getPoint());
+                int col = leftTable.columnAtPoint(e.getPoint());
+
+                if (col == 1 && row >= 0) { // Assuming column 0 is the Ticker column
+                    String ticker = leftTable.getValueAt(row, 0).toString();
+                    showCompanyPopup(ticker);
+                }
+            }
+        });
+
         // Force row selection on mouse down in either table
         MouseAdapter rowSelector = makeRowSelector();
         leftTable.addMouseListener(rowSelector);
@@ -251,9 +265,9 @@ public class PastLowWithNames {
 
         // Layout: frozen left + right
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftScroll, rightScroll);
-        split.setDividerSize(6);
+        split.setDividerSize(4);
         split.setResizeWeight(0);
-        split.setDividerLocation(350);
+        split.setDividerLocation(275);
 
         displayButton.addActionListener(ev -> runReportAsync());
 
@@ -374,6 +388,10 @@ public class PastLowWithNames {
 
                     HashMap<String, String> tickersMarket = fetchsnapshot(API_KEY);
 
+                    //52 get high low
+                    Map<String, SummaryStats> summaryMap = new HashMap<>();
+                    summaryMap = get52data(API_KEY);
+
 
                     int processed = 0;
 
@@ -404,10 +422,24 @@ public class PastLowWithNames {
                         }
                         String[] fullRow = buildFullRowNewestToOldest(symbol, desc, aligned);
 
+                        String marketValueStr = tickersMarket.get(symbol);
+                        String[] parts = marketValueStr.split(",");
                         // Live MarkPrice → Today
                         if (FETCH_LIVE_MARK && liveCount < LIVE_MARK_LIMIT) {
                             //  Double live = fetchLiveMarkPrice(symbol);
-                                Double live =  Double.parseDouble(tickersMarket.get(symbol));
+
+
+
+
+                            Double live=null;
+                            if (marketValueStr != null && !marketValueStr.trim().isEmpty()) {
+                                 live = Double.parseDouble(parts[0].trim());
+                                // use live
+                            } else {
+                                // handle missing or invalid value, e.g.:
+                                 live = 0.0; // or skip
+                            }
+
                             if (live != null) {
                                 fullRow[LOG_COL_MARKPRICE] = fmt2(live);
                                 double d0 = dbl(aligned.get(0)[4]); // newest close (D0)
@@ -416,6 +448,26 @@ public class PastLowWithNames {
                             liveCount++;
                           //  try { Thread.sleep(LIVE_MARK_THROTTLE_MS); } catch (InterruptedException ignore) {}
                         }
+
+                        //52 Bar
+                        SummaryStats stats = summaryMap.get(symbol);
+                        if (stats != null) {
+                            double high = Double.parseDouble(parts[2].trim());
+                            double low = Double.parseDouble(parts[1].trim());
+                            double current = Double.parseDouble(parts[0].trim());
+                            //update based on current
+                            if (low < stats.low && low != 0) {
+                                stats.low = low;
+                            }
+
+                            if (high > stats.high) {
+                                stats.high = high;
+                            }
+
+                            fullRow[LOG_COL_PCT] = build52WBar(current, stats.low, stats.high);
+
+                        }
+
 
                         // Mark filter
                         if (hasFrom || hasTo) {
@@ -431,7 +483,8 @@ public class PastLowWithNames {
 
                     // 5) Header
                     header = new ArrayList<>(Arrays.asList(
-                            "Symbol","Description","PctChange","AvgVol","NewLow?","VolSpike?","MarkPrice","RangeBar"
+                          //  "Symbol","Description","PctChange","AvgVol","NewLow?","VolSpike?","MarkPrice","RangeBar"
+                            "Symbol","Description","AvgVol","NewLow?","VolSpike?","52highLowBar","MarkPrice","RangeBar"
                     ));
                     String todayStr = LocalDate.now(ZoneId.systemDefault()).format(hdrFmt);
                     header.add(todayStr + " (Today)");
@@ -484,11 +537,12 @@ public class PastLowWithNames {
                 TransparentSelectionPlainRenderer plain = new TransparentSelectionPlainRenderer();
                 RangeBarRenderer rangeBar = new RangeBarRenderer();
 
-                setRenderer(rightTable, R_PCT, plain);
+
                 setRenderer(rightTable, R_AVGVOL, plain);
                 setRenderer(rightTable, R_NEWLOW, yesSticky);
                 setRenderer(rightTable, R_VOLSPIKE, yesSticky);
                 setRenderer(rightTable, R_MARKPRICE, plain);
+                setRenderer(rightTable, R_PCT, rangeBar);
                 setRenderer(rightTable, R_RANGEBAR, rangeBar);
                 setRenderer(rightTable, R_TODAY, new TodayFromMarkRenderer());
                 for (int c = R_DATES0; c < rightTable.getColumnCount(); c++) {
@@ -501,14 +555,14 @@ public class PastLowWithNames {
                 setRenderer(leftTable, 1, leftPlain);
 
                 // Widths
-                setColWidth(leftTable, 0, 110);
-                setColWidth(leftTable, 1, 280);
-                setColWidth(rightTable, R_PCT, 90);
-                setColWidth(rightTable, R_AVGVOL, 90);
-                setColWidth(rightTable, R_NEWLOW, 80);
-                setColWidth(rightTable, R_VOLSPIKE, 80);
-                setColWidth(rightTable, R_MARKPRICE, 100);
-                setColWidth(rightTable, R_RANGEBAR, 260);
+                setColWidth(leftTable, 0, 50);
+                setColWidth(leftTable, 1, 200);
+                setColWidth(rightTable, R_PCT, 270);
+                setColWidth(rightTable, R_AVGVOL, 70);
+                setColWidth(rightTable, R_NEWLOW, 40);
+                setColWidth(rightTable, R_VOLSPIKE, 40);
+                setColWidth(rightTable, R_MARKPRICE, 80);
+                setColWidth(rightTable, R_RANGEBAR, 270);
 
                 // Shared sorter
                 installSharedSorter();
@@ -591,7 +645,7 @@ public class PastLowWithNames {
         sharedSorter.setSortable(LOG_COL_SYMBOL, true);
         sharedSorter.setSortable(LOG_COL_DESC, true);
 
-        sharedSorter.setComparator(LOG_COL_PCT, (a, b) -> Double.compare(parsePercent(a), parsePercent(b)));
+     //   sharedSorter.setComparator(LOG_COL_PCT, (a, b) -> Double.compare(parsePercent(a), parsePercent(b)));
         sharedSorter.setComparator(LOG_COL_AVGVOL, (a, b) -> Long.compare(parseLong(a), parseLong(b)));
         sharedSorter.setComparator(LOG_COL_NEWLOW, (a, b) -> Boolean.compare(isYes(a), isYes(b)));
         sharedSorter.setComparator(LOG_COL_VOLSPIKE, (a, b) -> Boolean.compare(isYes(a), isYes(b)));
@@ -629,9 +683,9 @@ public class PastLowWithNames {
     // Fit Today + date columns to content
     private static void adjustAllRightColumnWidthsToContent() {
         if (rightTable == null) return;
-        autoFitColumn(rightTable, R_TODAY, 40, 240, 200);
+        autoFitColumn(rightTable, R_TODAY, 40, 200, 200);
         for (int c = R_DATES0; c < rightTable.getColumnCount(); c++) {
-            autoFitColumn(rightTable, c, 40, 240, 200);
+            autoFitColumn(rightTable, c, 40, 200, 200);
         }
         JTableHeader hdr = rightTable.getTableHeader();
         if (hdr != null) hdr.repaint();
@@ -703,7 +757,7 @@ public class PastLowWithNames {
         String[] row = new String[8 + 1 + newestToOldest.size()];
         row[LOG_COL_SYMBOL]     = symbol;
         row[LOG_COL_DESC]       = desc;
-        row[LOG_COL_PCT]        = String.format(Locale.US, "%.2f%%", pctChange);
+       // row[LOG_COL_PCT]        = String.format(Locale.US, "%.2f%%", pctChange);
         row[LOG_COL_AVGVOL]     = String.valueOf(avgVol);
         row[LOG_COL_NEWLOW]     = newLow ? "Yes" : "No";
         row[LOG_COL_VOLSPIKE]   = volSpike ? "Yes" : "No";
@@ -751,6 +805,7 @@ public class PastLowWithNames {
     // ---------- CSV ----------
     private static Map<String, List<String[]>> readAndGroup(String filePath) throws IOException {
         Map<String, List<String[]>> map = new HashMap<>();
+        String cd = getSystemDate();
         try (BufferedReader br = Files.newBufferedReader(Paths.get(filePath))) {
             String header = br.readLine(); // skip header
             String line;
@@ -758,12 +813,21 @@ public class PastLowWithNames {
                 if (line.isBlank()) continue;
                 String[] parts = line.split(",", -1);
                 if (parts.length < 7) continue;
-                String sym = parts[1].trim();
-                if (sym.isEmpty()) continue;
-                map.computeIfAbsent(sym, k -> new ArrayList<>()).add(parts);
+                String d = parts[0].trim();
+                if(!(d.equals(cd))){
+                    String sym = parts[1].trim();
+                    if (sym.isEmpty()) continue;
+                    map.computeIfAbsent(sym, k -> new ArrayList<>()).add(parts);
+                }
+
+
             }
         }
         return map;
+    }
+
+    public static String getSystemDate() {
+        return new SimpleDateFormat("yyyy-MM-dd").format(new Date());
     }
 
     // ---------- Window: NEWEST -> OLDEST ----------
@@ -820,7 +884,8 @@ public class PastLowWithNames {
             if (results != null) {
                 for (int i = 0; i < results.length() && map.size() < needed.size() && map.size() < MAX_TICKERS; i++) {
                     JSONObject t = results.getJSONObject(i);
-                    String ticker = t.optString("ticker", "").trim();
+                    String tickerRaw = t.optString("ticker", null);
+                    String ticker = (tickerRaw != null) ? tickerRaw.trim() : "";
                     if (!needed.contains(ticker)) continue;
 
                     if (filterMyIndex && myIndexCompanies.get(ticker) == null) continue;
@@ -1192,14 +1257,176 @@ public class PastLowWithNames {
 
             //get P.E value
             //  String Spe = peRatios.get(ticker);
-
+            String val = "";
             double last = lastTrade != null ? lastTrade.optDouble("p", 0.0) : 0.0;
+            double low = day != null ? day.optDouble("l", 0.0) : 0.0;
+            double high = day != null ? day.optDouble("h", 0.0) : 0.0;
+
             String sl = String.valueOf(last);
+            sl = sl+","+String.valueOf(low)+","+String.valueOf(high);
             map.put(ticker, sl);
 
 
         }
         return map;
     }
+
+    private static Map<String, SummaryStats> get52data(String API_KEY) throws IOException {
+
+        Map<String, SummaryStats> summaryMap = new HashMap<>();
+        try (BufferedReader reader = new BufferedReader(new FileReader("/Users/baps/Documents/Twillo/SCFiles/symbol_high_low_summary.csv"))) {
+            String line = reader.readLine(); // skip header
+            while ((line = reader.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length < 6) continue;
+
+                String symbol = parts[0];
+                double low = Double.parseDouble(parts[1]);
+                String lowDate = parts[2];
+                double high = Double.parseDouble(parts[3]);
+                String highDate = parts[4];
+                long avgVolume = Long.parseLong(parts[5]);
+
+                summaryMap.put(symbol, new SummaryStats(low, lowDate, high, highDate, avgVolume));
+            }
+            System.out.println("✅ 52-week summary loaded: " + summaryMap.size() + " symbols");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return summaryMap;
+    }
+
+    public static String build52WBar(double last, double low, double high) {
+        int barLength = 20;
+        double range = high - low;
+
+        if (range <= 0 || last < low || last > high) {
+            return "N/A";
+        }
+
+        int pos = (int) ((last - low) / range * (barLength - 1));
+
+        StringBuilder barBuilder = new StringBuilder();
+
+        // ✅ Fixed-width labels for alignment
+        String lowStr = String.format("%7.2f", low);   // e.g., " 180.00"
+        String highStr = String.format("%7.2f", high); // e.g., " 200.00"
+
+        barBuilder.append(lowStr).append(" "); // pad low
+        barBuilder.append("|");
+
+        for (int j = 0; j < barLength; j++) {
+            barBuilder.append(j == pos ? "V" : "-");
+        }
+
+        barBuilder.append("| ").append(highStr); // pad high
+
+        return barBuilder.toString();
+    }
+    private static void showCompanyPopup(String ticker) {
+        String url = "https://api.polygon.io/v3/reference/tickers/" + ticker + "?apiKey=" + API_KEY;
+
+        try {
+            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setRequestMethod("GET");
+
+            BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = in.readLine()) != null) response.append(line);
+            in.close();
+
+            JSONObject json = new JSONObject(response.toString());
+            JSONObject results = json.optJSONObject("results");
+
+            if (results != null) {
+                String name = results.optString("name", ticker);
+                String description = results.optString("description", "No description available.");
+                String industry = results.optString("sic_description", "Unknown Industry");
+                String website = results.optString("homepage_url", "").trim();
+
+                // 🔹 Styled Title
+                JLabel title = new JLabel("<html><b>" + name + " (" + ticker + ")</b></html>");
+                title.setFont(new Font("SansSerif", Font.BOLD, 22));
+
+                // 🔹 Description
+                JTextArea descArea = new JTextArea(description);
+                descArea.setWrapStyleWord(true);
+                descArea.setLineWrap(true);
+                descArea.setEditable(false);
+                descArea.setFont(new Font("SansSerif", Font.PLAIN, 16));
+                descArea.setBackground(new Color(250, 250, 250));
+                descArea.setMargin(new Insets(10, 10, 10, 10));
+                JScrollPane scrollPane = new JScrollPane(descArea);
+                scrollPane.setPreferredSize(new Dimension(700, 300));
+
+                // 🔹 Construct clickable links
+                String schwabUrl = "https://client.schwab.com/app/research/#/stocks/" + ticker;
+                String websiteUrl = website.startsWith("http") ? website : "https://" + website;
+
+                JLabel industryLabel = new JLabel("Industry: " + industry);
+                industryLabel.setFont(new Font("SansSerif", Font.ITALIC, 15));
+
+                JLabel schwabLabel = new JLabel("<html><a href='" + schwabUrl + "'>View on Schwab</a></html>");
+                schwabLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                schwabLabel.setForeground(Color.BLUE);
+                schwabLabel.setFont(new Font("SansSerif", Font.PLAIN, 15));
+                schwabLabel.addMouseListener(new MouseAdapter() {
+                    @Override
+                    public void mouseClicked(MouseEvent e) {
+                        try {
+                            Desktop.getDesktop().browse(new java.net.URI(schwabUrl));
+                        } catch (Exception ex) {
+                            ex.printStackTrace();
+                        }
+                    }
+                });
+
+                JLabel websiteLabel = new JLabel("<html><a href='" + websiteUrl + "'>" + website + "</a></html>");
+                websiteLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                websiteLabel.setForeground(Color.BLUE);
+                websiteLabel.setFont(new Font("SansSerif", Font.PLAIN, 15));
+                websiteLabel.addMouseListener(new MouseAdapter() {
+                    @Override
+                    public void mouseClicked(MouseEvent e) {
+                        try {
+                            Desktop.getDesktop().browse(new java.net.URI(websiteUrl));
+                        } catch (Exception ex) {
+                            ex.printStackTrace();
+                        }
+                    }
+                });
+
+                JPanel linkPanel = new JPanel(new GridLayout(3, 1, 5, 5));
+                linkPanel.add(industryLabel);
+                linkPanel.add(schwabLabel);
+                linkPanel.add(websiteLabel);
+                linkPanel.setBackground(Color.WHITE);
+
+                // 🔹 Final layout
+                JPanel panel = new JPanel(new BorderLayout(15, 15));
+                panel.setBackground(Color.WHITE);
+                panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+                panel.add(title, BorderLayout.NORTH);
+                panel.add(scrollPane, BorderLayout.CENTER);
+                panel.add(linkPanel, BorderLayout.SOUTH);
+
+                JDialog dialog = new JDialog(frame, "Company Information", true);
+                dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+                dialog.getContentPane().add(panel);
+                dialog.pack();
+                dialog.setSize(800, 500);  // wider popup window
+                dialog.setLocationRelativeTo(frame);
+                dialog.setVisible(true);
+            } else {
+                JOptionPane.showMessageDialog(frame, "No details found for " + ticker);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(frame, "Error retrieving company info: " + e.getMessage());
+        }
+    }
+
 
 }
